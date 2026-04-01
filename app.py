@@ -3,6 +3,7 @@ import json
 import threading
 import datetime
 import pytz
+import re
 import uvicorn
 import firebase_admin
 from firebase_admin import credentials, db
@@ -14,8 +15,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ==========================================
 # 1. CONFIG & FIREBASE SETUP
 # ==========================================
-FIREBASE_DB_URL = "https://iplpoints-eb557-default-rtdb.firebaseio.com" # e.g. https://your-db.firebaseio.com/
-TELEGRAM_TOKEN = "8689038827:AAG5YGwCCjl8G1TCK-yhegBCoIFCvn4_Utk"
+FIREBASE_DB_URL = "https://iplpoints-eb557-default-rtdb.firebaseio.com" 
+TELEGRAM_TOKEN = "8689038827:AAG5YGwCCjl8G1TCK-yhegBCoIFCvn4_Utk" # ⚠️ Apna Asli Token Daalna Yahan!
 
 # API Key Security
 API_KEY_NAME = "iplxlinux"
@@ -26,6 +27,13 @@ cred = credentials.Certificate("firebase_key.json")
 firebase_admin.initialize_app(cred, {
     'databaseURL': "https://iplpoints-eb557-default-rtdb.firebaseio.com"
 })
+
+# ==========================================
+# HELPER FUNCTION: Match name ko URL friendly banana
+# "MI vs GT" -> "mi-vs-gt"
+# ==========================================
+def make_slug(text):
+    return re.sub(r'[^a-zA-Z0-9]+', '-', text).strip('-').lower()
 
 # ==========================================
 # 2. FASTAPI (WEB SERVER)
@@ -42,20 +50,37 @@ def verify_key(key: str = Security(api_key_header)):
 async def status():
     return {"status": "running", "database": "connected"}
 
+# ENDPOINT 1: Saare available matches ki list dekhne ke liye
 @api_app.get("/ipl-fantasy-points/")
-async def get_points(key: str = Depends(verify_key)):
-    ref = db.reference('current_match')
+async def get_all_matches(key: str = Depends(verify_key)):
+    ref = db.reference('matches')
+    all_matches = ref.get()
+    
+    if all_matches:
+        match_list = []
+        for slug, details in all_matches.items():
+            match_list.append({
+                "match_name": details.get("match_name"),
+                "endpoint": f"/ipl-fantasy-points/{slug}"
+            })
+        return {"status": "success", "available_matches": match_list}
+    return {"status": "error", "message": "Koi match available nahi hai!"}
+
+# ENDPOINT 2: Specific Match ka data dekhne ke liye (Dynamic Route)
+@api_app.get("/ipl-fantasy-points/{match_slug}")
+async def get_specific_match_points(match_slug: str, key: str = Depends(verify_key)):
+    ref = db.reference(f'matches/{match_slug}')
     data = ref.get()
+    
     if data:
-        # Ye safely 'target_chat_id' ko dictionary se uda dega
+        # Chat ID aur extra cheezein uda do
         data.pop('target_chat_id', None)
         return {"status": "success", "data": data}
-    return {"status": "error", "message": "Database empty hai!"}
+        
+    return {"status": "error", "message": f"'{match_slug}' naam ka koi match nahi mila!"}
 
 def start_server():
-    # Render se port automatically uthayega
     port = int(os.environ.get("PORT", 8000))
-    # 🔥 YAHAN CHANGE KIYA HAI: Faltu logs band kar diye taaki output too large na ho
     uvicorn.run(api_app, host="0.0.0.0", port=port, access_log=False, log_level="error")
 
 # ==========================================
@@ -78,6 +103,7 @@ async def handle_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match_name = update.message.text
+    match_slug = make_slug(match_name) # Isse 'MI vs GT' -> 'mi-vs-gt' ban jayega
     players = context.user_data.get('players')
     
     final_data = {
@@ -87,13 +113,26 @@ async def handle_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "target_chat_id": update.effective_chat.id 
     }
     
-    db.reference('current_match').set(final_data)
+    # Firebase me specific folder banakar save karna
+    db.reference(f'matches/{match_slug}').set(final_data)
     
-    await update.message.reply_text(f"🚀 Match '{match_name}' data Firebase pe update ho gaya!")
+    # Ye pointer update karna taaki Daily Broadcast ko pata rahe latest match konsa tha
+    db.reference('latest_match').set(match_slug)
+    
+    reply_msg = (
+        f"🚀 Match '{match_name}' data Firebase pe update ho gaya!\n\n"
+        f"🔗 *Tera Endpoint:*\n"
+        f"`/ipl-fantasy-points/{match_slug}`"
+    )
+    await update.message.reply_text(reply_msg, parse_mode='Markdown')
     return ConversationHandler.END
 
 async def daily_broadcast(context: ContextTypes.DEFAULT_TYPE):
-    data = db.reference('current_match').get()
+    # Sabse latest wale match ka folder nikalenge
+    latest_slug = db.reference('latest_match').get()
+    if not latest_slug: return
+    
+    data = db.reference(f'matches/{latest_slug}').get()
     if not data: return
     
     chat_id = data.get('target_chat_id')
@@ -126,5 +165,5 @@ if __name__ == '__main__':
     ist = pytz.timezone('Asia/Kolkata')
     bot.job_queue.run_daily(daily_broadcast, time=datetime.time(hour=23, minute=30, tzinfo=ist))
 
-    print("System started with Firebase! Web Server running quietly.")
+    print("System started with Dynamic Endpoints! Web Server running quietly.")
     bot.run_polling()
