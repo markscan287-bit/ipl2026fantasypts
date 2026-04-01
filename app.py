@@ -64,12 +64,12 @@ async def get_all_matches(key: str = Depends(verify_key)):
         for slug, details in all_matches.items():
             match_list.append({
                 "match_name": details.get("match_name"),
-                "endpoint": f"/ipl-fantasy-points/{slug}"
+                "endpoint": f"linuxipl.onrender.com/ipl-fantasy-points/{slug}"
             })
             
         return {
             "status": "success", 
-            "latest_endpoint": f"/ipl-fantasy-points/{latest_slug}" if latest_slug else None,
+            "latest_endpoint": f"linuxipl.onrender.com/ipl-fantasy-points/{latest_slug}" if latest_slug else None,
             "available_matches": match_list
         }
     return {"status": "error", "message": "Koi match available nahi hai!"}
@@ -146,7 +146,7 @@ async def handle_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_msg = (
         f"🚀 Match '{match_name}' data Firebase pe update ho gaya!\n\n"
         f"🔗 *Tera Endpoint:*\n"
-        f"`/ipl-fantasy-points/{match_slug}`"
+        f"`linuxipl.onrender.com/ipl-fantasy-points/{match_slug}`"
     )
     await update.message.reply_text(reply_msg, parse_mode='Markdown')
     return ConversationHandler.END
