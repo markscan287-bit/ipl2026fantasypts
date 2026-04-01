@@ -7,7 +7,7 @@ import re
 import uvicorn
 import firebase_admin
 from firebase_admin import credentials, db
-from fastapi import FastAPI, Depends, HTTPException, Security
+from fastapi import FastAPI, Depends, HTTPException, Security, Response
 from fastapi.security.api_key import APIKeyHeader
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -45,10 +45,13 @@ def verify_key(key: str = Security(api_key_header)):
         return key
     raise HTTPException(status_code=403, detail="Galat Key hai bhai!")
 
+# --- YAHAN CHANGE KIYA HAI ---
 @api_app.get("/")
 async def status():
-    # Cron-job.org jab ispe hit karega, server active rahega
-    return {"status": "running", "database": "connected"}
+    # EKDUM SILENT: 204 No Content. 
+    # Server chalega par output 0 bytes aayega, cron-job error nahi dega.
+    return Response(status_code=204)
+# -----------------------------
 
 # ENDPOINT 1: Saare available matches
 @api_app.get("/ipl-fantasy-points/")
@@ -178,5 +181,5 @@ if __name__ == '__main__':
     ist = pytz.timezone('Asia/Kolkata')
     bot.job_queue.run_daily(daily_broadcast, time=datetime.time(hour=23, minute=30, tzinfo=ist))
 
-    print("System started with Dynamic Endpoints! Port listener active.")
+    print("System started with Silent Root Endpoint! Port listener active.")
     bot.run_polling()
