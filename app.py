@@ -50,11 +50,14 @@ def verify_key(key: str = Security(api_key_header)):
 async def status():
     return {"status": "running", "database": "connected"}
 
-# ENDPOINT 1: Saare available matches ki list dekhne ke liye
+# ENDPOINT 1: Saare available matches aur LATEST match ka link dekhne ke liye
 @api_app.get("/ipl-fantasy-points/")
 async def get_all_matches(key: str = Depends(verify_key)):
     ref = db.reference('matches')
     all_matches = ref.get()
+    
+    # Firebase se latest match ka slug nikal rahe hain
+    latest_slug = db.reference('latest_match').get()
     
     if all_matches:
         match_list = []
@@ -63,18 +66,41 @@ async def get_all_matches(key: str = Depends(verify_key)):
                 "match_name": details.get("match_name"),
                 "endpoint": f"/ipl-fantasy-points/{slug}"
             })
-        return {"status": "success", "available_matches": match_list}
+            
+        return {
+            "status": "success", 
+            "latest_endpoint": f"/ipl-fantasy-points/{latest_slug}" if latest_slug else None,
+            "available_matches": match_list
+        }
     return {"status": "error", "message": "Koi match available nahi hai!"}
 
-# ENDPOINT 2: Specific Match ka data dekhne ke liye (Dynamic Route)
+
+# ENDPOINT 2: Direct LATEST match ka data nikalne ke liye (SABSE KAAM KA ENDPOINT)
+@api_app.get("/ipl-fantasy-points/latest")
+async def get_latest_match_points(key: str = Depends(verify_key)):
+    latest_slug = db.reference('latest_match').get()
+    
+    if not latest_slug:
+        return {"status": "error", "message": "Koi match abhi tak upload nahi hua!"}
+        
+    ref = db.reference(f'matches/{latest_slug}')
+    data = ref.get()
+    
+    if data:
+        data.pop('target_chat_id', None) # Chat ID uda di
+        return {"status": "success", "match_slug": latest_slug, "data": data}
+        
+    return {"status": "error", "message": "Latest match ka data nahi mila!"}
+
+
+# ENDPOINT 3: Specific Match ka data dekhne ke liye (Dynamic Route)
 @api_app.get("/ipl-fantasy-points/{match_slug}")
 async def get_specific_match_points(match_slug: str, key: str = Depends(verify_key)):
     ref = db.reference(f'matches/{match_slug}')
     data = ref.get()
     
     if data:
-        # Chat ID aur extra cheezein uda do
-        data.pop('target_chat_id', None)
+        data.pop('target_chat_id', None) # Chat ID uda di
         return {"status": "success", "data": data}
         
     return {"status": "error", "message": f"'{match_slug}' naam ka koi match nahi mila!"}
@@ -82,8 +108,6 @@ async def get_specific_match_points(match_slug: str, key: str = Depends(verify_k
 def start_server():
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(api_app, host="0.0.0.0", port=port, access_log=False, log_level="error")
-
-# ==========================================
 # 3. TELEGRAM BOT (CONVERSATION)
 # ==========================================
 JSON_IN, MATCH_NAME_IN = range(2)
