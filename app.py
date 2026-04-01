@@ -14,8 +14,6 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ==========================================
 # 1. CONFIG & FIREBASE SETUP
 # ==========================================
-# ⚠️ Firebase Console -> Project Settings -> Service Accounts se naya private key download karo
-# Use 'firebase_key.json' ke naam se isi folder mein rakho.
 FIREBASE_DB_URL = "https://iplpoints-eb557-default-rtdb.firebaseio.com" # e.g. https://your-db.firebaseio.com/
 TELEGRAM_TOKEN = "8689038827:AAG5YGwCCjl8G1TCK-yhegBCoIFCvn4_Utk"
 
@@ -46,7 +44,6 @@ async def status():
 
 @api_app.get("/ipl-fantasy-points/")
 async def get_points(key: str = Depends(verify_key)):
-    # Firebase se data fetch karna
     ref = db.reference('current_match')
     data = ref.get()
     if data:
@@ -54,8 +51,10 @@ async def get_points(key: str = Depends(verify_key)):
     return {"status": "error", "message": "Database empty hai!"}
 
 def start_server():
+    # Render se port automatically uthayega
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(api_app, host="0.0.0.0", port=port)
+    # 🔥 YAHAN CHANGE KIYA HAI: Faltu logs band kar diye taaki output too large na ho
+    uvicorn.run(api_app, host="0.0.0.0", port=port, access_log=False, log_level="error")
 
 # ==========================================
 # 3. TELEGRAM BOT (CONVERSATION)
@@ -83,10 +82,9 @@ async def handle_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "match_name": match_name,
         "players": players,
         "last_updated": str(datetime.datetime.now(pytz.timezone('Asia/Kolkata'))),
-        "target_chat_id": update.effective_chat.id # Jahan se upload hua wahi message jayega
+        "target_chat_id": update.effective_chat.id 
     }
     
-    # Firebase mein save karna
     db.reference('current_match').set(final_data)
     
     await update.message.reply_text(f"🚀 Match '{match_name}' data Firebase pe update ho gaya!")
@@ -109,10 +107,8 @@ async def daily_broadcast(context: ContextTypes.DEFAULT_TYPE):
 # 4. EXECUTION
 # ==========================================
 if __name__ == '__main__':
-    # Thread 1: FastAPI
     threading.Thread(target=start_server, daemon=True).start()
 
-    # Thread 2: Bot
     bot = Application.builder().token(TELEGRAM_TOKEN).build()
     
     conv = ConversationHandler(
@@ -125,9 +121,8 @@ if __name__ == '__main__':
     )
     bot.add_handler(conv)
     
-    # Daily Job at 11:30 PM IST
     ist = pytz.timezone('Asia/Kolkata')
     bot.job_queue.run_daily(daily_broadcast, time=datetime.time(hour=23, minute=30, tzinfo=ist))
 
-    print("System started with Firebase!")
+    print("System started with Firebase! Web Server running quietly.")
     bot.run_polling()
