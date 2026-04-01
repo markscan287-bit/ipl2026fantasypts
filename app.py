@@ -15,8 +15,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # ==========================================
 # 1. CONFIG & FIREBASE SETUP
 # ==========================================
-FIREBASE_DB_URL = "https://iplpoints-eb557-default-rtdb.firebaseio.com" 
-TELEGRAM_TOKEN = "8689038827:AAG5YGwCCjl8G1TCK-yhegBCoIFCvn4_Utk" # ⚠️ Apna Asli Token Daalna Yahan!
+FIREBASE_DB_URL = "https://iplpoints-eb557-default-rtdb.firebaseio.com"
+TELEGRAM_TOKEN = "8689038827:AAG5YGwCCjl8G1TCK-yhegBCoIFCvn4_Utk"
 
 # API Key Security
 API_KEY_NAME = "iplxlinux"
@@ -25,12 +25,11 @@ SECRET_VALUE = "linuxxpreet"
 # Firebase Initialization
 cred = credentials.Certificate("firebase_key.json")
 firebase_admin.initialize_app(cred, {
-    'databaseURL': "https://iplpoints-eb557-default-rtdb.firebaseio.com"
+    'databaseURL': FIREBASE_DB_URL
 })
 
 # ==========================================
 # HELPER FUNCTION: Match name ko URL friendly banana
-# "MI vs GT" -> "mi-vs-gt"
 # ==========================================
 def make_slug(text):
     return re.sub(r'[^a-zA-Z0-9]+', '-', text).strip('-').lower()
@@ -48,15 +47,14 @@ def verify_key(key: str = Security(api_key_header)):
 
 @api_app.get("/")
 async def status():
+    # Cron-job.org jab ispe hit karega, server active rahega
     return {"status": "running", "database": "connected"}
 
-# ENDPOINT 1: Saare available matches aur LATEST match ka link dekhne ke liye
+# ENDPOINT 1: Saare available matches
 @api_app.get("/ipl-fantasy-points/")
 async def get_all_matches(key: str = Depends(verify_key)):
     ref = db.reference('matches')
     all_matches = ref.get()
-    
-    # Firebase se latest match ka slug nikal rahe hain
     latest_slug = db.reference('latest_match').get()
     
     if all_matches:
@@ -74,40 +72,36 @@ async def get_all_matches(key: str = Depends(verify_key)):
         }
     return {"status": "error", "message": "Koi match available nahi hai!"}
 
-
-# ENDPOINT 2: Direct LATEST match ka data nikalne ke liye (SABSE KAAM KA ENDPOINT)
+# ENDPOINT 2: Direct LATEST match data
 @api_app.get("/ipl-fantasy-points/latest")
 async def get_latest_match_points(key: str = Depends(verify_key)):
     latest_slug = db.reference('latest_match').get()
-    
     if not latest_slug:
         return {"status": "error", "message": "Koi match abhi tak upload nahi hua!"}
         
     ref = db.reference(f'matches/{latest_slug}')
     data = ref.get()
-    
     if data:
-        data.pop('target_chat_id', None) # Chat ID uda di
+        data.pop('target_chat_id', None)
         return {"status": "success", "match_slug": latest_slug, "data": data}
-        
     return {"status": "error", "message": "Latest match ka data nahi mila!"}
 
-
-# ENDPOINT 3: Specific Match ka data dekhne ke liye (Dynamic Route)
+# ENDPOINT 3: Specific Match data
 @api_app.get("/ipl-fantasy-points/{match_slug}")
 async def get_specific_match_points(match_slug: str, key: str = Depends(verify_key)):
     ref = db.reference(f'matches/{match_slug}')
     data = ref.get()
-    
     if data:
-        data.pop('target_chat_id', None) # Chat ID uda di
+        data.pop('target_chat_id', None)
         return {"status": "success", "data": data}
-        
     return {"status": "error", "message": f"'{match_slug}' naam ka koi match nahi mila!"}
 
 def start_server():
+    # Port configuration for Render (saalo saal chalne ke liye)
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(api_app, host="0.0.0.0", port=port, access_log=False, log_level="error")
+
+# ==========================================
 # 3. TELEGRAM BOT (CONVERSATION)
 # ==========================================
 JSON_IN, MATCH_NAME_IN = range(2)
@@ -127,7 +121,7 @@ async def handle_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match_name = update.message.text
-    match_slug = make_slug(match_name) # Isse 'MI vs GT' -> 'mi-vs-gt' ban jayega
+    match_slug = make_slug(match_name)
     players = context.user_data.get('players')
     
     final_data = {
@@ -137,10 +131,7 @@ async def handle_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "target_chat_id": update.effective_chat.id 
     }
     
-    # Firebase me specific folder banakar save karna
     db.reference(f'matches/{match_slug}').set(final_data)
-    
-    # Ye pointer update karna taaki Daily Broadcast ko pata rahe latest match konsa tha
     db.reference('latest_match').set(match_slug)
     
     reply_msg = (
@@ -152,13 +143,10 @@ async def handle_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def daily_broadcast(context: ContextTypes.DEFAULT_TYPE):
-    # Sabse latest wale match ka folder nikalenge
     latest_slug = db.reference('latest_match').get()
     if not latest_slug: return
-    
     data = db.reference(f'matches/{latest_slug}').get()
     if not data: return
-    
     chat_id = data.get('target_chat_id')
     if not chat_id: return
 
@@ -172,6 +160,7 @@ async def daily_broadcast(context: ContextTypes.DEFAULT_TYPE):
 # 4. EXECUTION
 # ==========================================
 if __name__ == '__main__':
+    # Threading server ko background mein chalayega
     threading.Thread(target=start_server, daemon=True).start()
 
     bot = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -189,5 +178,5 @@ if __name__ == '__main__':
     ist = pytz.timezone('Asia/Kolkata')
     bot.job_queue.run_daily(daily_broadcast, time=datetime.time(hour=23, minute=30, tzinfo=ist))
 
-    print("System started with Dynamic Endpoints! Web Server running quietly.")
+    print("System started with Dynamic Endpoints! Port listener active.")
     bot.run_polling()
