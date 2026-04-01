@@ -47,6 +47,8 @@ async def get_points(key: str = Depends(verify_key)):
     ref = db.reference('current_match')
     data = ref.get()
     if data:
+        # Ye safely 'target_chat_id' ko dictionary se uda dega
+        data.pop('target_chat_id', None)
         return {"status": "success", "data": data}
     return {"status": "error", "message": "Database empty hai!"}
 
